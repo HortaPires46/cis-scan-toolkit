@@ -1,0 +1,115 @@
+---
+# playbook-cis-scan.yml
+#
+# Orquestra a execucao do run-cis-scan.sh em todos os servidores
+# do grupo [rhel9_servers], em lotes controlados, e recolhe os
+# resultados de volta para o controlador Ansible.
+#
+# Pre-requisitos:
+#   - run-cis-scan.sh deve estar na mesma pasta deste playbook
+#   - Inventory com o grupo [rhel9_servers] configurado
+#   - SSH key + sudo (become) ja funcionando para esses hosts
+#
+# Uso:
+#   ansible-playbook -i inventory.ini playbook-cis-scan.yml \
+#     -e "ds_path=/usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml"
+#
+# Para rodar so em um host especifico (recomendado: teste em 1 host
+# antes de escalar para o grupo inteiro):
+#   ansible-playbook -i inventory.ini playbook-cis-scan.yml \
+#     -e "ds_path=/usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml" \
+#     --limit nome-do-servidor-de-teste
+#
+- name: Executar scan de compliance CIS Server L1 em servidores RHEL 9
+  hosts: rhel9_servers
+  become: true
+  become_method: sudo
+
+  # Controla quantos servidores rodam o scan AO MESMO TEMPO.
+  # 3 e um valor conservador para nao gerar muitos scans
+  # simultaneos competindo por memoria/CPU na infra.
+  serial: 3
+
+  vars:
+    ds_path: "/usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml"
+    script_local_path: "./run-cis-scan.sh"
+    script_remote_path: "/root/run-cis-scan.sh"
+    # Pasta no CONTROLADOR onde os resultados de todos os hosts serao salvos
+    local_results_dir: "./resultados-cis/{{ inventory_hostname }}"
+
+  tasks:
+    - name: Verificar se o datastream SSG existe no servidor
+      ansible.builtin.stat:
+        path: "{{ ds_path }}"
+      register: ds_check
+
+    - name: Falhar com mensagem clara se o datastream nao existir
+      ansible.builtin.fail:
+        msg: >
+          Datastream nao encontrado em {{ ds_path }} no host {{ inventory_hostname }}.
+          Verifique se o pacote scap-security-guide esta instalado
+          (dnf install scap-security-guide) ou ajuste a variavel ds_path.
+      when: not ds_check.stat.exists
+
+    - name: Copiar o script run-cis-scan.sh para o servidor
+      ansible.builtin.copy:
+        src: "{{ script_local_path }}"
+        dest: "{{ script_remote_path }}"
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: "Executar scan CIS em {{ inventory_hostname }} (pode levar varios minutos)"
+      ansible.builtin.command:
+        cmd: "{{ script_remote_path }} {{ ds_path }}"
+      register: scan_result
+      # rc 0 = tudo pass, rc 2 = scan ok mas com falhas de compliance (normal e esperado)
+      # rc 1 ou outro = erro real de execucao
+      failed_when: scan_result.rc not in [0, 2]
+      changed_when: true
+
+    - name: Mostrar resumo da execucao
+      ansible.builtin.debug:
+        msg: "{{ scan_result.stdout_lines }}"
+
+    - name: Localizar a pasta de saida gerada nesta execucao
+      ansible.builtin.shell:
+        cmd: "ls -td /root/cis-scan/*/ | head -n1"
+      register: latest_output_dir
+      changed_when: false
+
+    - name: Criar pasta local para os resultados deste host
+      ansible.builtin.file:
+        path: "{{ local_results_dir }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+
+    - name: Buscar resultado-cis.xml de volta para o controlador
+      ansible.builtin.fetch:
+        src: "{{ latest_output_dir.stdout }}/resultado-cis.xml"
+        dest: "{{ local_results_dir }}/resultado-cis.xml"
+        flat: true
+
+    - name: Buscar relatorio-cis-baseline.html de volta para o controlador (melhor esforco)
+      ansible.builtin.fetch:
+        src: "{{ latest_output_dir.stdout }}/relatorio-cis-baseline.html"
+        dest: "{{ local_results_dir }}/relatorio-cis-baseline.html"
+        flat: true
+      ignore_errors: true
+      register: html_fetch
+
+    - name: Avisar se o HTML nao foi gerado neste host
+      ansible.builtin.debug:
+        msg: >
+          O relatorio HTML nao foi gerado em {{ inventory_hostname }}
+          (limitacao conhecida do OpenSCAP em sistemas com muitos
+          arquivos - ver README, secao "Riscos Conhecidos").
+          O resultado-cis.xml permanece valido e completo.
+      when: html_fetch.failed | default(false)
+
+    - name: Confirmar conclusao para este host
+      ansible.builtin.debug:
+        msg: >
+          Scan concluido em {{ inventory_hostname }}.
+          Resultados salvos em {{ local_results_dir }}/
