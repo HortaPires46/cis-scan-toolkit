@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  tailoring-cis-server-l1-no-fileperms.xml
+
+  Tailoring file que customiza o perfil CIS Server L1 (RHEL 9)
+  desabilitando 2 regras com problema CONHECIDO de consumo de
+  memoria no OpenSCAP (confirmado pela Red Hat em RHEL-73012 e
+  pelo proprio projeto OpenSCAP em issue #1588):
+
+    - xccdf_org.ssgproject.content_rule_no_files_unowned_by_user
+    - xccdf_org.ssgproject.content_rule_file_permissions_ungroupowned
+
+  Essas regras escaneiam recursivamente TODO o filesystem e o
+  OpenSCAP mantem os resultados na memoria ate o fim do scan,
+  causando consumo de memoria sem limite pratico em servidores
+  com muitos arquivos (containers, logs, agentes de monitoramento).
+
+  Referencias:
+    https://access.redhat.com/articles/6999111 (RHEL-73012)
+    https://github.com/OpenSCAP/openscap/issues/1588
+
+  Uso (ver comando completo no chat de entrega; hifens duplos
+  consecutivos nao sao permitidos dentro de comentarios XML,
+  por isso o comando completo nao foi reproduzido aqui).
+
+  IMPORTANTE: as 2 regras excluidas precisam ser avaliadas/tratadas
+  separadamente, fora do scan automatizado em massa (ver nota no
+  final do README de delivery).
+-->
+<xccdf:Tailoring xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2"
+                  id="xccdf_org.example_tailoring_cis_server_l1_no_fileperms">
+
+  <xccdf:benchmark href="ssg-rhel9-xccdf.xml"/>
+
+  <xccdf:version time="2026-06-25T00:00:00">1</xccdf:version>
+
+  <xccdf:Profile id="xccdf_org.ssgproject.content_profile_cis_server_l1_no_fileperms"
+                  extends="xccdf_org.ssgproject.content_profile_cis_server_l1">
+    <xccdf:title xml:lang="en-US">
+      CIS Server L1 (RHEL 9) - sem regras de varredura completa de filesystem
+    </xccdf:title>
+    <xccdf:description xml:lang="en-US">
+      Extensao do perfil CIS Server L1 original, com as regras
+      no_files_unowned_by_user e file_permissions_ungroupowned
+      desabilitadas devido a consumo excessivo de memoria
+      (bug conhecido no OpenSCAP / libxml2 ao consolidar resultados
+      dessas regras em sistemas com grande quantidade de arquivos).
+    </xccdf:description>
+
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_no_files_unowned_by_user" selected="false"/>
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_file_permissions_ungroupowned" selected="false"/>
+
+  </xccdf:Profile>
+
+</xccdf:Tailoring>
