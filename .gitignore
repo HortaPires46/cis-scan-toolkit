@@ -1,0 +1,31 @@
+# Inventarios reais (contem hostnames/IPs do ambiente) - nunca versionar
+ansible/inventory.ini
+ansible/inventory.yml
+ansible/inventory.yaml
+*.inventory.ini
+
+# Resultados de scans (contem dados reais dos servidores escaneados)
+resultados-cis/
+*-cis-scan/
+resultado-cis*.xml
+relatorio-cis-baseline*.html
+cis-scan/
+
+# Relatorios gerados (podem conter dados sensiveis de servidores reais)
+Relatorio_Homologacao_*.docx
+*.docx
+
+# Segredos e variaveis de ambiente
+.env
+*.vault.yml
+vault_pass.txt
+
+# Arquivos de sistema / editor
+.DS_Store
+*.swp
+*~
+__pycache__/
+*.pyc
+
+# Logs locais
+*.log
